@@ -1,0 +1,25 @@
+name: Build IPA
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project ShortsAutoNext.xcodeproj \
+            -target ShortsAutoNext -configuration Release -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SYMROOT="$PWD/build" build
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Release-iphoneos/ShortsAutoNext.app Payload/
+          zip -qry ShortsAutoNext.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShortsAutoNext-ipa
+          path: ShortsAutoNext.ipa

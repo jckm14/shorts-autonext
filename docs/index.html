@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Shorts Auto-Next</title>
+<meta name="theme-color" content="#0f0f0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Auto-Next">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root { --bg:#0f0f0f; --panel:#1c1c1e; --line:#2e2e31; --text:#f2f2f2; --dim:#9a9aa0; --accent:#ff0033; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.35 -apple-system, system-ui, "Segoe UI", sans-serif; overscroll-behavior:none; }
+  body { display:flex; flex-direction:column; height:100dvh;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+
+  #chips { display:flex; gap:8px; padding:10px 12px; overflow-x:auto; flex:none; scrollbar-width:none; }
+  #chips::-webkit-scrollbar { display:none; }
+  .chip { flex:none; max-width:60vw; padding:7px 13px; border-radius:999px; background:var(--panel);
+    border:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip.on { background:var(--text); color:#000; border-color:var(--text); font-weight:600; }
+  .chip.add { color:var(--dim); border-style:dashed; }
+
+  #stage { flex:1; min-height:0; position:relative; background:#000; }
+  #stage iframe, #player { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  #empty { position:absolute; inset:0; display:flex; flex-direction:column; gap:12px; align-items:center;
+    justify-content:center; text-align:center; padding:28px; color:var(--dim); }
+  #empty b { color:var(--text); font-size:18px; }
+
+  #bar { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px; }
+  #bar .nav { display:flex; gap:10px; }
+  .btn { min-width:54px; height:46px; padding:0 16px; border-radius:14px; background:var(--panel);
+    border:1px solid var(--line); font-weight:600; }
+  .btn:active { background:var(--line); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.toggle.on { border-color:var(--accent); color:var(--accent); }
+
+  #toast { position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:#000d; border:1px solid var(--line); padding:9px 14px; border-radius:12px; max-width:86vw;
+    text-align:center; opacity:0; pointer-events:none; transition:opacity .2s; z-index:5; }
+  #toast.show { opacity:1; }
+
+  dialog { width:min(520px, 94vw); max-height:86dvh; padding:0; border:1px solid var(--line); border-radius:18px;
+    background:var(--panel); color:var(--text); }
+  dialog::backdrop { background:#000a; }
+  .sheet { padding:18px; display:flex; flex-direction:column; gap:14px; }
+  .sheet h2 { margin:0; font-size:18px; }
+  .sheet p { margin:0; color:var(--dim); font-size:13px; }
+  .sheet input { width:100%; height:46px; padding:0 12px; border-radius:12px; border:1px solid var(--line);
+    background:var(--bg); color:var(--text); font-size:16px; }
+  .row { display:flex; gap:8px; }
+  .row input { flex:1; min-width:0; }
+  #list { display:flex; flex-direction:column; gap:6px; }
+  .src { display:flex; align-items:center; gap:8px; padding:8px 8px 8px 12px; background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; }
+  .src span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .src button { color:var(--dim); padding:6px 10px; }
+  #msg { color:#ff7a8a; min-height:1.2em; }
+</style>
+</head>
+<body>
+  <div id="chips"></div>
+
+  <div id="stage">
+    <div id="player"></div>
+    <div id="empty" hidden>
+      <b>No sources yet</b>
+      <span>Add a channel, a playlist, or individual Shorts and they will play back to back.</span>
+      <button class="btn primary" data-open>Add a source</button>
+    </div>
+  </div>
+
+  <div id="bar">
+    <div class="nav">
+      <button class="btn" id="prev" aria-label="Previous Short">&#9650;</button>
+      <button class="btn primary" id="next" aria-label="Next Short">&#9660; Next</button>
+    </div>
+    <div class="nav">
+      <button class="btn toggle" id="shuffle" aria-pressed="false">Shuffle</button>
+      <button class="btn" data-open aria-label="Manage sources">&#9776;</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status"></div>
+
+  <dialog id="dlg">
+    <div class="sheet">
+      <h2>Sources</h2>
+      <div id="list"></div>
+      <div class="row">
+        <input id="in" placeholder="Channel ID, playlist link, or Shorts link" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="btn primary" id="add">Add</button>
+      </div>
+      <div id="msg"></div>
+      <p>Accepted: a channel ID (starts with UC) or /channel/ link, a playlist link, or a link to a single Short
+        (added to "My queue"). @handles need a YouTube Data API key, below.</p>
+      <input id="key" placeholder="YouTube Data API key (optional)" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button class="btn" id="close">Done</button>
+    </div>
+  </dialog>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+
+  // A source is {type:"playlist", id, label} or {type:"videos", ids:[...], label}
+  var sources = store.get("san.sources", null) || [
+    { type: "playlist", id: "UUSHX6OQ3DkcsbYNE6H8uQQuVA", label: "MrBeast" }
+  ];
+  var current = Math.min(store.get("san.current", 0), Math.max(sources.length - 1, 0));
+  var shuffle = store.get("san.shuffle", false);
+  var player = null, ready = false, endTimer = null, errors = 0, needsSetup = false;
+
+  function save() { store.set("san.sources", sources); store.set("san.current", current); store.set("san.shuffle", shuffle); }
+
+  var toastTimer;
+  function toast(text) {
+    var t = $("toast"); t.textContent = text; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  }
+
+  // ---------- rendering ----------
+  function render() {
+    var chips = $("chips"); chips.textContent = "";
+    sources.forEach(function (s, i) {
+      var b = document.createElement("button");
+      b.className = "chip" + (i === current ? " on" : "");
+      b.textContent = s.label;
+      b.onclick = function () { playSource(i); };
+      chips.appendChild(b);
+    });
+    var add = document.createElement("button");
+    add.className = "chip add"; add.textContent = "+ Add"; add.onclick = openDialog;
+    chips.appendChild(add);
+
+    var list = $("list"); list.textContent = "";
+    sources.forEach(function (s, i) {
+      var row = document.createElement("div"); row.className = "src";
+      var name = document.createElement("span");
+      name.textContent = s.label + (s.type === "videos" ? " (" + s.ids.length + ")" : "");
+      var del = document.createElement("button"); del.textContent = "Remove";
+      del.onclick = function () { removeSource(i); };
+      row.appendChild(name); row.appendChild(del); list.appendChild(row);
+    });
+
+    $("empty").hidden = sources.length > 0;
+    $("shuffle").classList.toggle("on", shuffle);
+    $("shuffle").setAttribute("aria-pressed", String(shuffle));
+  }
+
+  // ---------- playback ----------
+  function playSource(i) {
+    if (!sources.length) return;
+    current = ((i % sources.length) + sources.length) % sources.length;
+    save(); render();
+    if (!ready) return;
+    var s = sources[current];
+    errors = 0; needsSetup = true;
+    if (s.type === "videos") player.loadPlaylist(s.ids.slice(), 0);
+    else player.loadPlaylist({ listType: "playlist", list: s.id, index: 0 });
+  }
+
+  function step(dir) {
+    if (!ready || !sources.length) return;
+    if (dir > 0) player.nextVideo(); else player.previousVideo();
+  }
+
+  function onState(e) {
+    clearTimeout(endTimer);
+    if (e.data === YT.PlayerState.PLAYING) {
+      errors = 0;
+      if (needsSetup) {            // loop + shuffle only take effect once the playlist is loaded
+        needsSetup = false;
+        player.setLoop(true);
+        player.setShuffle(shuffle);
+      }
+      var s = sources[current];    // name channel sources after the uploader once known
+      if (s && s.type === "playlist" && s.label === s.id && player.getVideoData) {
+        var author = (player.getVideoData() || {}).author;
+        if (author) { s.label = author; save(); render(); }
+      }
+    }
+    if (e.data === YT.PlayerState.ENDED) {
+      // Playlists advance on their own; this is the safety net if the player stalls on "ended".
+      endTimer = setTimeout(function () {
+        if (player.getPlayerState() === YT.PlayerState.ENDED) player.nextVideo();
+      }, 1200);
+    }
+  }
+
+  function onError(e) {
+    errors++;
+    if (errors >= 3) {
+      toast("This source won't play (error " + e.data + "). Try another or remove it.");
+      return;
+    }
+    toast("Skipping an unplayable video");
+    setTimeout(function () { player.nextVideo(); }, 400);
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player("player", {
+      width: "100%", height: "100%",
+      playerVars: { playsinline: 1, rel: 0, autoplay: 1, fs: 0 },
+      events: {
+        onReady: function () { ready = true; playSource(current); },
+        onStateChange: onState,
+        onError: onError
+      }
+    });
+  };
+
+  // ---------- sources ----------
+  function removeSource(i) {
+    sources.splice(i, 1);
+    if (current >= sources.length) current = Math.max(sources.length - 1, 0);
+    save(); render();
+    if (sources.length) playSource(current); else if (ready) player.stopVideo();
+  }
+
+  function addPlaylist(id, label) {
+    var at = sources.findIndex(function (s) { return s.type === "playlist" && s.id === id; });
+    if (at < 0) { sources.push({ type: "playlist", id: id, label: label || id }); at = sources.length - 1; }
+    return at;
+  }
+
+  function addVideo(id) {
+    var at = sources.findIndex(function (s) { return s.type === "videos"; });
+    if (at < 0) { sources.push({ type: "videos", ids: [], label: "My queue" }); at = sources.length - 1; }
+    if (sources[at].ids.indexOf(id) < 0) sources[at].ids.push(id);
+    return at;
+  }
+
+  function shortsPlaylist(channelId) { return "UUSH" + channelId.slice(2); }
+
+  async function resolveHandle(handle) {
+    var key = $("key").value.trim();
+    if (!key) throw new Error("@handles need an API key. Or paste the channel ID: channel page > About > Share > Copy channel ID.");
+    var r = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=" +
+      encodeURIComponent(handle) + "&key=" + encodeURIComponent(key));
+    var j = await r.json();
+    if (!r.ok) throw new Error((j.error && j.error.message) || "API request failed");
+    if (!j.items || !j.items.length) throw new Error("No channel found for " + handle);
+    return { id: j.items[0].id, title: j.items[0].snippet.title };
+  }
+
+  async function addFromInput() {
+    var raw = $("in").value.trim(), m, at;
+    $("msg").textContent = "";
+    if (!raw) return;
+    try {
+      if ((m = raw.match(/[?&]list=([\w-]+)/))) at = addPlaylist(m[1]);
+      else if ((m = raw.match(/(?:^|\/channel\/)(UC[\w-]{22})(?:$|[/?#])/))) at = addPlaylist(shortsPlaylist(m[1]));
+      else if ((m = raw.match(/^((?:PL|UU|OL|FL|RD)[\w-]{10,})$/))) at = addPlaylist(m[1]);
+      else if ((m = raw.match(/(?:shorts\/|youtu\.be\/|[?&]v=|embed\/)([\w-]{11})/))) at = addVideo(m[1]);
+      else if ((m = raw.match(/^([\w-]{11})$/))) at = addVideo(m[1]);
+      else if ((m = raw.match(/(?:^|youtube\.com\/)(@[\w.-]+)/))) {
+        var ch = await resolveHandle(m[1]);
+        at = addPlaylist(shortsPlaylist(ch.id), ch.title);
+      } else throw new Error("Couldn't read that. Paste a channel ID, playlist link, or Shorts link.");
+    } catch (err) {
+      $("msg").textContent = err.message; return;
+    }
+    $("in").value = "";
+    store.set("san.key", $("key").value.trim());
+    save(); render(); playSource(at);
+  }
+
+  // ---------- wiring ----------
+  function openDialog() { $("msg").textContent = ""; $("dlg").showModal(); }
+  document.querySelectorAll("[data-open]").forEach(function (b) { b.onclick = openDialog; });
+  $("close").onclick = function () { store.set("san.key", $("key").value.trim()); $("dlg").close(); };
+  $("add").onclick = addFromInput;
+  $("in").addEventListener("keydown", function (e) { if (e.key === "Enter") addFromInput(); });
+  $("next").onclick = function () { step(1); };
+  $("prev").onclick = function () { step(-1); };
+  $("shuffle").onclick = function () {
+    shuffle = !shuffle; save(); render();
+    if (ready) player.setShuffle(shuffle);
+    toast(shuffle ? "Shuffle on" : "Shuffle off");
+  };
+  $("key").value = store.get("san.key", "");
+
+  render();
+  var tag = document.createElement("script");
+  tag.src = "https://www.youtube.com/iframe_api";
+  tag.onerror = function () { toast("Couldn't reach YouTube. Check your connection."); };
+  document.head.appendChild(tag);
+})();
+</script>
+</body>
+</html>
