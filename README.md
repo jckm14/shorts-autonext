@@ -24,7 +24,7 @@ Open `ShortsAutoNext.xcodeproj` in Xcode on a Mac, choose your team under Signin
 ## What's in here
 
 - `ShortsAutoNext/` and `ShortsAutoNext.xcodeproj` — the iOS app (SwiftUI + WKWebView). `autonext.js` is the script that detects the end of a Short and advances.
-- `.github/workflows/build-ipa.yml` — builds the unsigned `.ipa`; pushing a `v*` tag publishes it as a release.
+- `.github/workflows/build-ipa.yml` — builds the unsigned `.ipa`; every push to `main` publishes it to the release for the current app version.
 - `docs/` — an experimental Home Screen web app that plays Shorts from channels or playlists you add. It cannot show YouTube's own feed.
 
 This project is not affiliated with YouTube or Google.
